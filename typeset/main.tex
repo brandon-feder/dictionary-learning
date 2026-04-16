@@ -1,0 +1,278 @@
+\documentclass{article}
+
+\title{DictionaryLearning.jl}
+\author{Brandon Feder}
+\date{\today}
+
+%\def\optionNoStyling{}
+%\def\optionThrmNumberingBySection{}
+%\def\optionNoTheoremColoring{}
+%\def\probNumberingSeperate{}
+%\def\optionTheoremColoringGray{}
+%\def\optionTheoremLessColoring{}
+%\def\optionEnableBgImage{}
+
+\usepackage{brandons-preamble}
+
+\newcommand{\bA}{\mathbf{A}}
+\newcommand{\bB}{\mathbf{B}}
+\newcommand{\bC}{\mathbf{C}}
+\newcommand{\bD}{\mathbf{D}}
+\newcommand{\bE}{\mathbf{E}}
+\newcommand{\bF}{\mathbf{F}}
+\newcommand{\bG}{\mathbf{G}}
+\newcommand{\bH}{\mathbf{H}}
+\newcommand{\bI}{\mathbf{I}}
+\newcommand{\bJ}{\mathbf{J}}
+\newcommand{\bK}{\mathbf{K}}
+\newcommand{\bL}{\mathbf{L}}
+\newcommand{\bM}{\mathbf{M}}
+\newcommand{\bN}{\mathbf{N}}
+\newcommand{\bO}{\mathbf{O}}
+\newcommand{\bP}{\mathbf{P}}
+\newcommand{\bQ}{\mathbf{Q}}
+\newcommand{\bR}{\mathbf{R}}
+\newcommand{\bS}{\mathbf{S}}
+\newcommand{\bT}{\mathbf{T}}
+\newcommand{\bU}{\mathbf{U}}
+\newcommand{\bV}{\mathbf{V}}
+\newcommand{\bW}{\mathbf{W}}
+\newcommand{\bX}{\mathbf{X}}
+\newcommand{\bY}{\mathbf{Y}}
+\newcommand{\bZ}{\mathbf{Z}}
+
+\newcommand{\D}{\text{D}}
+
+\newcommand{\bGamma}{\boldsymbol{\Gamma}}
+\newcommand{\bPi}{\boldsymbol{\Pi}}
+\newcommand{\bmu}{\boldsymbol{\mu}}
+\newcommand{\btheta}{\boldsymbol{\theta}}
+\newcommand{\bSigma}{\boldsymbol{\Sigma}}
+
+\newcommand{\veps}{\varepsilon}
+\newcommand{\bveps}{\boldsymbol{\varepsilon}}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\begin{document}
+
+\maketitle
+
+\subsection*{Overview}
+
+Fix some $1 \leq t \leq n$. We would like to compute \[
+    \hat{\bSigma}_j = \frac{1}{n}\sum_{i=1}^n \langle \by_i, \by_j \rangle \by_i\by_i^T
+\] for $1 \leq j \leq t$. Let $\bG = \bY^T\bY_{:,1:t} \in \RR^{n \times t}$. Define $\bv_i = \text{vec}\left(\by_i\by_i^T\right)$ and let $\bV \in \RR^{m^2 \times n}$ be such that $\bV_{:,i} = \bv_i$. Let \[
+    \bT = \frac{1}{n} \bV \bG^{\odot 2}.
+\] Then, $\bT_{:,j} = \text{vec}\left(\hat\bSigma_j\right)$. For larger problems, $\bT$, $\bV$, and $\bG$ may not fit in RAM. Let $R \subseteq [t]$ and $S \subseteq [m^2]$ then, \[
+    \bT_{S,R} = \frac{1}{n}\bV_{S,:}\bG_{:,R}^{\odot 2}
+\] For $R$ and $S$ sufficiently small, $\bG_{R,:}$ and $\bV_{:,S}$ will fit in RAM, but we still need to be able to form them. We can compute $\bG_{R,:}$ in blocks $Q \subset [n]$ as \[
+    \bG_{Q,R} = \bY_{Q,:}^T\bY_{:,1:t}.
+\] It remains to form $\bV_{:,S}$.
+
+We propose computing $\bV_{:,S}$ one column at a time, assuming we have fast access to rows of $\bY$, and that $S$ is a contiguous indexing of columns $S = a:b$. We have that \[
+    \bV_{i,h} = \left(\by_i\right)_{u_h}\left(\by_i\right)_{v_h}
+\] for some $1  \leq u_hv_h \leq n$. Define \[
+    \bu_h = \bY_{u_h, :} \quad\text{and}\quad \bv_h = \bY_{v_h, :}.
+\] Then $\bV_{:,h} = \bu_h \odot \bv_h$. For $a \leq h \leq b$, there are $\min\left\{m, b-a\right\}$ distinct values of $v_h$ and $\min\left\{m, \left\lfloor \frac{b-a}{m} \right\rfloor\right\}$ distinct values of $u_h$.
+
+\subsection*{Psuedocode}
+
+\begin{algorithm}
+\caption{Compute $\bSigma$}\label{alg1}
+\begin{algorithmic}
+    \REQUIRE Preallocated $\bSigma \in \RR^{m \times m}$, block size $1 \leq p_w \leq n$, $mp_w$ work space.
+    \FOR{$P \in \texttt{part}(m, p_w)$}
+        \STATE Allocate $\bY_P \in \RR^{m \times |P|}$
+        \STATE $\bY_P \gets \bY_{:,P}$
+        \STATE $\bSigma \gets \bSigma + \bY_{:,P}\bY_{:,P}^T$
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+\caption{Compute $\bQ_{:,R}$}\label{alg2}
+\begin{algorithmic}
+    \REQUIRE Preallocated $\bQ_{:,R}$, $R$, $mr_w + mq_w$ workspace
+    \STATE Allocate $\bY_R \in \RR^{m \times |R|}$
+    \STATE $\bY_R \gets \bY_{:,R}$
+    \FOR{$Q \in \texttt{part}(n, q_w)$}
+        \STATE Allocate $\bY_Q \in \RR^{m \times |Q|}$
+        \STATE $\bY_Q \gets \bY_{:,Q}$
+        \STATE $\bG_{:,Q} \gets \bY_Q^T\bY_R$
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+\caption{Compute $\bV_{S,:}$}\label{alg3}
+\begin{algorithmic}
+    \REQUIRE Preallocated $\bV_{S,:}$, $S$, $n \times \left(\min\left\{m, \left\lceil \frac{s_w}{m} \right  \rceil\right\} + \min\left\{m, s_w\right\}\right)$ workspace
+    \STATE Compute $U = \{u_h\;|\; h \in S\}$ and $V = \{v_h\;|\; h \in S\}$
+    \STATE Allocate $\bY_U \in \RR^{n \times |U|}$ and $\bY_V \in \RR^{n \times |V|}$
+    \STATE $\bY_U \gets \bY_{:,U}$
+    \STATE $\bY_V \gets \bY_{:,V}$
+    \FOR{$h \in S$}
+        \STATE $\bV_{:,S} \gets \bY_{u_h,:} \odot \bY_{v_h,:}$ taking $\bY_U$ and $\bY_V$
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+% \subsection{Computing $\bV_S$}
+
+% In psuedocode, we can compute $\bV_{S,:}$ as 
+
+\quad
+
+\newpage
+
+\begin{algorithmic}
+\REQUIRE $\bV_{S,:}$ preallocated, $S$, $\bY$
+
+\;
+\STATE allocate 
+\STATE allocate $\bu_h,\bv_h \in \RR^n$
+\FOR{$h \in S$}
+\STATE Determine $u_h$, $v_h$
+\STATE $\bu_h \gets \bY_{u_h,:}$
+\STATE $\bv_h \gets \bY_{v_h,:}$
+\STATE $\bV_{S,h} \gets \bu_u \odot \bv_h$
+\ENDFOR
+\end{algorithmic}
+
+We describe a scheme for ``blocking'' the computation as follows. Fix constants $1 \leq p_w \leq n$, $1 \leq q_w \leq t$, $1 \leq r_w \leq n$, and $1 \leq s_w \leq m^2$. Let $\text{part}(n, k)$ denote a parition of $1, \cdots, n$ into contigouous blocks of size at most $k$. Consider the following algorithm.
+
+\quad
+
+\begin{algorithmic}
+\REQUIRE $\bY$, block sizes $r_w$, $p_w$, $q_w$, $s_w$
+
+\;
+
+\STATE Allocate $\bSigma \in \RR^{m \times m}$ and fill with $0$
+
+\;
+
+\STATE \# compute $\bSigma$
+\FOR{$P \in \texttt{part}(m, p_w)$}
+    \STATE $\bSigma \gets \bSigma + \bY_{:,P}\bY_{:,P}^T$
+\ENDFOR
+
+\;
+
+\STATE \# recover subspaces
+\FOR{$R \in \texttt{part}(t, r_w)$}
+    \STATE $r \gets |R|$
+    \STATE Allocate $\bG_{:, R} \in \RR^{n \times r}$
+
+    \;
+
+
+    \;
+
+    \STATE \# Compute $\bT$
+    \STATE Allocate $\bT_R \in \RR^{m^2 \times r}$
+    \FOR{$S \in \texttt{part}(m^2, s_w)$}
+        \STATE $s \gets |S|$
+        \STATE Allocate $\bV_S \in \RR^{s \times n}$
+        \STATE $\bV_S$
+        \COMMENT{Requires iterating over all of $Y$}
+        \STATE $\left(\bT_{R}\right)_{S,:} \gets \bV_S\left(\bG^T\right)^{\odot 2}$
+    \ENDFOR
+
+    \;
+
+    \STATE \# Now $\left(\bT_R\right)_{:,i} = \text{vec}\left(\hat\bSigma_j\right)$.
+\ENDFOR
+\end{algorithmic}
+
+In total, this requires at most \begin{align*}
+    &\quad m^2 + \max\left\{mp_w, nr_w + \max\left\{mr_w + mq_w,\; m^2r_w + s_wn + 2n\right\}\right\}\\
+\end{align*}
+
+% The most expensive operation is the final for-loop, so we want to first maximize $s_w$, followed by $q_w$, then $r_w$.
+    
+Thus, By setting $p_w = r_w = s_w = q_w = 1$, we see that the minimum work space we need is \begin{align*}
+    m^2 + \max\left\{m, n + \max\left\{m + m,\; m^2 + n + 2n\right\}\right\}
+\end{align*} By setting $p_w = r_w = n$, $q_w = t$, and $s_w = m^2$ we see that the maximum work space needed is \[
+    m^2 + \max\left\{mn, n^2 + \max\left\{mn + mt,\; 2m^2n + 2n\right\}\right\}
+\]
+
+Given $w$ workspace, choose $p_w$, $r_w$, $q_w$, and $s_w$ as follows. \begin{align*}
+    p_w &= \left\lfloor \frac{w - m^2}{m} \right\rfloor\\
+    s_w &= \left\lfloor \frac{w - 2m^2 - 3n}{n} \right\rfloor\\
+    q_w &= \left\lfloor \frac{w - m^2 - n - m}{m} \right\rfloor\\
+    r_w &= \min\left\{ \left\lfloor \frac{w - mq_w}{n + m}  \right\rfloor, \left\lfloor \frac{w - ns_w - 2n}{n + m^2} \right\rfloor \right\}
+\end{align*}
+
+% \newpage
+% \;
+% \newpage
+
+% Let $S_1,S_2 \in \RR^{m \times s}$ have columns which represent an orthonormal basis for linear subspaces $\cS_1$ and $\cS_2$ of $\RR^m$. The subspace distance between $\cS_1$ and $\cS_2$ is given by \[
+%     d(\cS_1, \cS_2) = \norm{\left(I - S_2S_2^T\right)S_1}
+% \] where $\norm{\cdot}$ is some matrix norm.
+
+% \section*{Implementation}
+
+% \subsection*{Subspace Recovery}
+
+% Let $\bD \in \RR^{m \times k}$ be the dictionary, let $\bX \in \RR^{k \times n}$ be the data, and let $\bY \in \RR^{m \times n}$ be the samples. Assume we want to recover the first $r \leq n$ subspaces. Let $\by_i = \bY_{:,i}$.
+
+% There are four main steps to the subspace recovery. They are \begin{enumerate}
+%     \item Compute the correlation covariance \[
+%         \hat\bSigma = \frac{1}{n} \bY\bY^T.
+%     \]
+%     \item Compute the weighted correlation covariance matrices \[
+%         \hat\bSigma_j = \frac{1}{n} \sum_{i=1}^n \langle \by_i, \by_j\rangle^2 \by_i \by_i^T
+%     \] for $1 \leq j \leq r$.
+%     \item Compute the projections \[
+%         \hat\bSigma_j^\text{proj} = \hat\bSigma_j - \frac{\langle \hat\bSigma, \hat\bSigma_j \rangle}{\norm{\hat\bSigma}_2^2}\hat\bSigma
+%     \] for $1 \leq j \leq r$.
+%     \item Recover the $j$-th subspace $\cS_j$ as the leading $s$ eigenvalues of $\hat \bSigma_j^\text{proj}$.
+% \end{enumerate}
+
+% We do each of these steps as follows.
+
+% \begin{enumerate}
+%     \item To compute $\hat\bSigma$, we use BLAS's \texttt{syrk} routine to compute the upper-triangular part of $\bSigma$. Then, we copy that to the lower-triangular part. This takes $\cO(m^2n)$ time and may be performed in-place.
+%     \item Computing each $\hat\bSigma_j$ is the most difficult and time-intensive step. Below are two approaches for computing these, the first taking $\cO(m^2rn)$ and the second taking $\cO(m^4n + m^4r)$. The first approach seems more practical for the applications we consider, but I include the second since it is interesting and may be faster if $n$ is small. \begin{enumerate}
+%         \item Let $\bG = \bY_{:,1:r}^T\bY$. Let $\text{vec} : \RR^{m \times n} \to \RR^{mn}$ take a matrix $\bM$ to the vector \[
+%             \left[ \bM_{1,1}\; \cdots\; \bM_{m, 1}\; \bM_{1,2}\; \cdots\; \bM_{m,2}\; \cdots\; \bM_{1,n}\; \cdots\; \bM_{m,n} \right]^T.
+%         \] Let $\bv_i = \text{vec}\left(\by_i\by_i^T\right)$. Let $\bV \in \RR^{m^2 \times n}$ be such that $\bV_{:,i} = \bv_i$. Let $\bT \in \RR^{m^2 \times r}$ be such that $\bT_{:,i} = \text{vec}\left(\hat\bSigma_j\right)$. Then, \[
+%             \bT = \frac{1}{n}\bV\left(\bG^{\odot 2}\right)^T,
+%         \] where $\bG^{\odot 2} = \bG \odot \bG$ and $\odot$ is the Hadamard product. We may construct $\bG$ in $\cO(rmn)$, construct $\bV$ in $\cO(m^2n)$, and then compute $\bT$ in $\cO(m^2rn)$. This achieves the same time-complexity as the approach used in Stephen's thesis, but far better cache-locality. Modern CPUs and GPUs are optimized for matrix-multiplication.
+
+%         If $\bV$ is too large to fit in RAM, we may form $\bT$ in ``blocks'' as follows. Choose block-sizes $b_1, \cdots, b_p \in \NN$ such that $\sum b_i = m$. Ideally we want all $b$'s to be roughly the same size, and for the sake of cache-friendlieness, as large as possible. For $1 \leq q \leq p$, let $B_q = \sum_{i=1}^q mb_i$. Let $I_q = (B_q, B_q +1, \cdots, B_{q+1})$ and $J_q = \left(\frac{B_q}{m}, \frac{B_q}{m}+1, \cdots, \frac{B_{q+1}}{m}\right)$. Then, \[
+%             \left(\bV_{I_q}\right)_{:,i} = \left(\bv_i\right)_{I_q} = \left(\bv_i\right)_{I_q} = \text{vec}\left( \by_i \left(\by_i\right)_{J_q}^T \right),
+%         \] which may still be computed as a rank-1 update of two vectors both contiguous in memory. Thus, we may form $\bT$ by computing for $1 \leq q \leq p$, \[
+%             \bT_{I_q,:} = \frac{1}{n}\bV_{I_q,:}\left(\bG^{\odot 2}\right)^T.
+%         \] It may be faster to work with $\bT^T$ rather than $\bT$ so that we are accesing contiguous columns, i.e. \[
+%             \left(\bT^T\right)_{:,I_q} = \frac{1}{n}\left(\bG^{\odot 2}\right)\bV_{I_q,:}^T
+%         \]
+
+%         \item We now describe an approach that achieves a better time-complexity. First of all, note that \[
+%             \langle \by_i, \by_j\rangle^2 = \by_j^T\by_i\by_i^T\by_j = \text{tr}\left(\by_j^T\by_i\by_i^T\by_j\right) = \text{tr}\left(\by_i\by_i^T\by_j\by_j^T\right)
+%         \] where the last equality follows from the cyclic nature of the trace. The latter expression is the Frobenius inner product \[
+%             \langle \by_i\by_i^T, \by_j\by_j^T\rangle_F = \text{vec}\left(\by_i\by_i^T\right)^T\text{vec}\left(\by_j\by_j^T\right).
+%         \] Let $\bv_i = \left(\by_i\by_i^T\right)$. Thus, we have shown that \[
+%             \hat\bSigma_j = \frac{1}{n}\sum_{i=1}^n \left(\bv_i^T\bv_j\right)\by_i\by_i^T,
+%         \] so \[
+%             \text{vec}\left(\hat\bSigma_j\right) = \frac{1}{n} \sum_{i=1}^n \left(\bv_i^T\bv_j\right)\bv_i = \frac{1}{n} \left(\sum_{i=1}^n \bv_i\bv_i^T\right)\bv_j.
+%         \] Define $\bC = \sum_{i=1}^n \bv_i\bv_i^T$, so \[
+%             \text{vec}\left(\hat\bSigma_j\right) = \frac{1}{n}\bC\bv_j.
+%         \] As above, let $\bT \in \RR^{m^2 \times r}$ be such that $\bT_{:,i} = \text{vec}\left(\hat\bSigma_j\right)$. Let $\bU \in \RR^{m^2 \times r}$ be such that $\bU_{:,j} = \bv_j$. Then, \[
+%             \bT = \frac{1}{n}\bC\bU.
+%         \] We may form $\bC$ in $\cO(m^4n)$, $\bU$ in $\cO(m^2r)$, and compute $\bT$ in $\cO(m^4r)$. $\bC$ will not fit in memory, so we should split the computation into ``blocks'' in a manner similar to (a).
+%     \end{enumerate}
+
+%     As opposed to the implementation of this algorithm \href{github.com/sew347/spectral_dict_learn}{here}, the above algorithm may be implemented as a composition of extremelly parallel column-wise operations and BLAS level-2 and 3 routines which are highly optimized for modern CPUs and GPUs.
+    
+    
+%     \item We may compute each $\hat\bSigma_j^\text{proj}$ independentally and in parallel. This can be done in $\cO(rm^2)$ in-place.
+%     \item We may recover each subspace $\cS_j$ independentally and in parallel. Computing the eigenvalues and eigenvectors of $\hat\bSigma_j^\text{proj}$ takes $\cO(m^3)$. We take the leading $s$ eigenvectors and orthonormalize them which takes an additional $\cO(s^2m)$.
+% \end{enumerate}
+
+
+% Given $\hat\bSigma$ and $$
+
+\end{document}
