@@ -7,17 +7,41 @@ using Base.Broadcast: broadcasted, materialize
 
 include("../Utils.jl")
 
-"""
-Efficiently fill the matrix `M` such that `M[i,j] = g0(A[i] - B[j])*τ[j]`
-or simply `M[i,j] = g0(A[i] - B[j])` if `τ` is `nothing`.
+@doc raw"""
+    function compM!(M, A, B, wns, work, τ=nothing)
+
+Computes ``M`` so that 
+
+```math
+e^T_i M_{:,:,s} e_j = e_s^Tf(A_i, B_j) \tau_j
+``` 
+
+if ``\tau`` is provided or simply
+
+```math
+e^T_i M_{:,:,s} e_j = e_s^Tf(A_i, B_j)
+``` 
+
+otherwise. The wavenumbers defining ``f`` are given 
+in `wns`.
 
 # Arguments
-`M::AbstractMatrix` - `m×n` complex matrix which will be overwritten with linear system
-`ξ::AbstractMatrix` - `3×m` matrix where each column is the coordinate
-    of a scatterer
-`τ`::AbstractVector - length `m` vector containg scatterer strengths 
-`wns::Real` - The wave numbers
-`work::AbstractArray` - at least `m x n` work space
+* `M::AbstractArray{Complex{T}}`: Array of size `(m, n, p)` which will be overwritten with the system.
+* `A::AbstractMatrix{Complex{T}}`:  Array of size `(3, m)` representing coordinates.
+* `B::AbstractMatrix{Complex{T}}`: Array of size `(3, n)` representing coordinates.
+* `wns::AbstractVector{Complex{T}}`: Vector of length `p` containing wave numbers.
+* `work::AbstractArray{Complex{T}}`: Array of length at least `m*n`. Used as scratch space
+    and is overwritten.
+* `τ::Union{AbstractVector{T}, Nothing}=nothing`: Optional argument specifing the scaling of the second
+    dimension of `M`. If `nothing` assumed to containg all `1`.
+
+
+    function compM!(M, A, wns, work, τ=nothing)
+
+
+Same as `compM!(M, A, A, wns, work, τ)` except the diagonals are overwritten by `-1`.
+
+
 """
 function compM!(
     M::AbstractArray{Complex{T}}, A::AbstractMatrix{T}, 
@@ -77,94 +101,59 @@ function compM!(
     @views Mflat[1:(m+1):m*m, :] .= -1
 end
 
+
+@doc raw"""
+    function compG!(G, Mξξfac, Mrξ, Mξz,  Mrz, wns)
+
+Computes ``G`` so that 
+```math
+G_{:,:,s} = M^{[rz]}_{:,:,s} - M^{[rξ]}_{:,:,s} \left(M^{[ξξ]}_{:,:,s}
+\right)^{-1}M^{[ξz]}_{:,s}
+```
+for ``s = 1, \cdots, p``
+
+# Arguments
+* `G::AbstractArray{Complex{T}}`: Array of size `(n, k, p)` which will be overwritten with the Green's tensor. Will be overwritten.
+* `Mξξfac::AbstractVector`: Vector of length `p` containg factorizations of ``M^{[\xi\xi]}_s`` for ``s = 1, \cdots, p``. The factorizations should be supported by `ldiv!`.
+* `Mrξ::AbstractArray{Complex{T}}`: Array of size `(n, m, p)` containing each ``M^{[r\xi]}_s`` along the last dimension. Will be overwritten.
+* `Mξz::AbstractArray{Complex{T}}`: Array of size `(m, k, p)` containing each ``M^{[\xi z]}_s`` along the last dimension.
+* `Mrz::AbstractArray{Complex{T}}`: Array of size `(n, k, p)` containing each ``M^{[rz]}_s`` along the last dimension.
+* `wns::AbstractVector{T}`: Vector of length `p` containing wavenumbers.
+"""
 function compG!(
-    G::AbstractArray{Complex{T}}, Mξξ_facs, 
-    z::AbstractMatrix{T}, ξ::AbstractMatrix{T},  r::AbstractMatrix{T},
-    τ::AbstractVector{T}, wns::AbstractVector{T}, work::AbstractArray{T}
+    G::AbstractArray{Complex{T}}, Mξξfac,
+    Mrξ::AbstractArray{Complex{T}}, Mξz::AbstractArray{Complex{T}},
+    Mrz::AbstractArray{Complex{T}}, wns::AbstractVector{T}
 ) where T <: Union{Float32, Float64}
-    n = size(r, 2)
-    k = size(z, 2)
-    m = size(ξ, 2)
-    p = length(wns)
-
-    # check arguments
-    # @assert size(M) == (m, m, p)
-    @assert size(G) == (n, k, p)
-    @assert size(ξ) == (3, m)
-    @assert length(τ) == m
-    @assert length(wns) == p
-    @assert length(work) >= 2*m*k + 2*n*m + 
-        2*m^2 + max(3*m*k, m*n, n*k)
-
-    # make sure backends agree
-    @assert backsagree(G, z, ξ, r, τ, wns, work)
-
-    # manage work space
-    wst = WorkStackTrack{T}(work)
-
-    for t in 1:p
-        Ge = reinterpret(ComplexF64, pop!(wst, 2*m, k))
-        Mrξ = reinterpret(ComplexF64, pop!(wst, 2*n, m))
-        Mξz = reinterpret(ComplexF64, pop!(wst, 2*m, k))
-        # Mξξqr = reinterpret(ComplexF64, pop!(wst, 2*m, m))
-
-        # fill Mξz
-        work2 = pop!(wst, m, k)
-        compM!(reshape(Mξz, size(Mξz)..., 1), ξ, z, view(wns, t:t), work2)
-        push!(wst, m, k)
-
-        # copyto!(Mξξqr, view(M, :, :, t))
-        # Mξξqr .*= -1
-
-        ldiv!(Ge, Mξξ_facs[t], Mξz)
-
-        # return space for Mξξqr
-        # push!(wst, 2*m, m)
-
-        # return workspace for Mξz
-        push!(wst, 2*m, k)
-
-        work2 = pop!(wst, n, m)
-        compM!(reshape(Mrξ, size(Mrξ)..., 1), r, ξ, view(wns, t:t), work2)
-        push!(wst, n, m)
-
-        # compute total field
-        work2 = pop!(wst, n, k)
-        compM!(view(G, :, :, t:t), r, z, view(wns, t:t), work2)
-        push!(wst, n, k)
-
-        view(G, :, :, t:t) .+= Mrξ * Ge
-
-        # return workspace for Mrξ
-        push!(wst, 2*n, m)
-
-        # return workspace for Ge
-        push!(wst, 2*m, k)
-    end
-end
-
-function compGHom!(
-    G::AbstractArray{Complex{T}}, 
-    z::AbstractMatrix{T}, r::AbstractMatrix{T},
-    wns::AbstractVector{T}, work::AbstractArray{T}
-) where T <: Union{Float32, Float64}
-    n = size(r, 2)
-    k = size(z, 2)
-    p = length(wns)
+    n, k, p = size(G)
+    m = size(Mrξ, 2)
 
     # check arguments
     @assert size(G) == (n, k, p)
+    @assert length(Mξξfac) == p
+    @assert all(M -> size(M) == (m,m), Mξξfac)
+    @assert size(Mrξ) == (n, m, p)
+    @assert size(Mξz) == (m, k, p)
+    @assert size(Mrz) == (n, k, p)
     @assert length(wns) == p
-    @assert length(work) >= n*k
 
     # make sure backends agree
-    @assert backsagree(G, z, r, wns, work)
+    @assert backsagree(G, Mrξ, Mξz, Mrz, wns)
 
-    for t in 1:p
-        compM!(view(G, :, :, t:t), r, z, view(wns, t:t), work)
+    # solve LS problems
+    for s in 1:p
+        # get current slice
+        Mξz_ = view(Mξz, :, :, s)
+        Mξξ_ = Mξξfac[s]
+        Mrz_ = view(Mrz, :, :, s)
+        Mrξ_ = view(Mrξ, :, :, s)
+        G_ = view(G, :, :, s)
+
+        ldiv!(Mξz_, Mξξ_, Mξz_)
+        G_ .= Mrz_ .- Mrξ_ * Mξz_
     end
 end
 
-export compM!, compG!, compGHom!
+export compM!, compG!
 
 end

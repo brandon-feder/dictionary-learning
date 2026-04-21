@@ -2,10 +2,6 @@ function compΣ!(
     Σ::Matrix{T}, D::AbstractMatrix{T}, X::AbstractSparseMatrix{T}, 
     work::AbstractArray{T}
 ) where T
-    """
-    Requires `mk` workspace.
-    """
-
     # used to manage workspace
     wst = WorkStackTrack{T}(work)
 
