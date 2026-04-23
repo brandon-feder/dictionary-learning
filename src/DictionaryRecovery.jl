@@ -2,27 +2,44 @@
 function recdict!(
     D::AbstractMatrix{T}, S::AbstractArray{T}, simps::Simplices
 ) where T
-    m, _ = size(D)
+    m, k = size(D)
+    back = get_backend(D)
 
-    @blasst @floop ThreadedEx() for (i,di) in enumerate(eachcol(D))
+    @assert size(D) == (m, k)
+    @assert backsagree(D, S)
+
+    
+    @floop ThreadedEx() for i in 1:k
+        @init begin
+            M = adapt(back, Matrix{T}(undef, m, m))
+        end
+
         # get i-th simplex
         simp = simps.simps[i]
-
-        @init begin
-            # per-thread scratch space
-            M = Matrix{T}(undef, m, m)
-        end
 
         # reset M
         fill!(M, 0.0)
 
         # compute M
         for i in simp
-            BLAS.syrk!('U', 'N', 1.0, view(S, :, :, i), 1.0, M)
+            if back == CPU()
+                if T <: Real
+                    BLAS.syrk!('U', 'N', one(T), view(S, :, :, i), one(T), M)
+                else
+                    BLAS.herk!('U', 'N', one(T), view(S, :, :, i), one(T), M)
+                end
+            elseif back == CUDABackend()
+                if T <: Real
+                    CUBLAS.syrk!('U', 'N', one(T), view(S, :, :, i), one(T), M)
+                else
+                    CUBLAS.herk!('U', 'N', one(T), view(S, :, :, i), one(T), M)
+                end
+            end
         end
 
-        # set di as largest eigenvector
-        eig = eigen(Symmetric(M), sortby = λ -> -λ)
-        di .= view(eig.vectors, :, 1)
+        # ToDo: Replace with TruncatedSVD/Kyrlov Subspace Methods
+        eig = eigen(Hermitian(M))
+        eigvindx = sortperm(adapt(CPU(), eig.values), by=λ->-λ)
+        view(D, :, i) .= view(eig.vectors, :, eigvindx[1])
     end
 end

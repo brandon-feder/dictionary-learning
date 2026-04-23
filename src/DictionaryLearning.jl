@@ -16,7 +16,7 @@ using Combinatorics
 using Clustering
 using KrylovKit
 using DataStructures
-using KernelAbstractions
+using CUDA, KernelAbstractions, GPUArrays, Adapt
 
 # overloaded in `Utils.jl`
 import Base: push!, pop!
@@ -28,7 +28,7 @@ include("Clustering.jl")
 include("DictionaryRecovery.jl")
 include("FoldyLax/FoldyLax.jl")
 
-export gendata, gendict, compΣ!, compG!, compV!, compZ!, compS!,
+export compΣ!, compG!, compV!, compZ!, compS!,
     truesubs!, subdists!, nsupshared!, truesimps, recdict!, formgraph,
-    truetruegraph, nedgedif, Simplices
+    truetruegraph, nedgedif, Simplices, cluster, randsvd
 end

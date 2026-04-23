@@ -8,6 +8,7 @@ using Graphs
 using DataStructures
 using Clustering
 using KrylovKit
+using Random
 
 import Plots
 import StatsPlots
@@ -15,9 +16,50 @@ import StatsPlots
 
 using DictionaryLearning
 
-include("./debug.jl")
+include("../debug.jl")
 
 include("clustering-test.jl")
+
+
+function gendata(k::Int, n::Int, s::Int)
+    """
+    Generate an `k x n` matrix consisting of 
+    columns with sparsity `s` and with non-zero
+    entries taking values 1 or -1.
+    """
+
+    # construct COO format of SparseMatrix
+    C = repeat(1:n, inner=[s])
+    R = Vector{Int64}(undef, s*n)
+    V = rand((-1.0, 1.0), s*n)
+
+    # choose support in each column
+    perm = collect(1:k)
+    for j in 1:n
+
+        # choose support
+        shuffle!(perm)
+        sup = view(perm, 1:s)
+        copyto!(view(R, s*(j-1)+1:s*j), sup)
+    end
+
+    # create sparse matrix
+    X = sparse(R, C, V, k, n)
+
+    return X
+end
+
+function gendict(m::Int, k::Int)
+    """
+    Generate an `M x K` dictionary consisting of 
+    columns which are distributed about the M-sphere
+    uniformly at random.
+    """
+
+    D = randn(m, k)
+    normalize!.(eachcol(D))
+    return D
+end
 
 function main()
     m::Int = 50
@@ -169,6 +211,8 @@ function plot_sd_err(asubs::Array, tsubs::Array)
     # compute distance from true subspaces
     sd = Vector{Float64}(undef, size(asubs, 3))
     subdists!(sd, tsubs, asubs)
+
+    println(mean(sd))
 
     p = Plots.histogram(
         sd, 
