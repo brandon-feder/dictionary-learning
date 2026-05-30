@@ -1,159 +1,85 @@
-module FoldyLax
-
-using LinearAlgebra
-using FLoops
-using KernelAbstractions, Adapt, GPUArrays
-using Base.Broadcast: broadcasted, materialize
-
-include("../Utils.jl")
-
-@doc raw"""
-    function compM!(M, A, B, wns, work, τ=nothing)
-
-Computes ``M`` so that 
-
-```math
-e^T_i M_{:,:,s} e_j = e_s^Tf(A_i, B_j) \tau_j
-``` 
-
-if ``\tau`` is provided or simply
-
-```math
-e^T_i M_{:,:,s} e_j = e_s^Tf(A_i, B_j)
-``` 
-
-otherwise. The wavenumbers defining ``f`` are given 
-in `wns`.
-
-# Arguments
-* `M::AbstractArray{Complex{T}}`: Array of size `(m, n, p)` which will be overwritten with the system.
-* `A::AbstractMatrix{Complex{T}}`:  Array of size `(3, m)` representing coordinates.
-* `B::AbstractMatrix{Complex{T}}`: Array of size `(3, n)` representing coordinates.
-* `wns::AbstractVector{Complex{T}}`: Vector of length `p` containing wave numbers.
-* `work::AbstractArray{Complex{T}}`: Array of length at least `m*n`. Used as scratch space
-    and is overwritten.
-* `τ::Union{AbstractVector{T}, Nothing}=nothing`: Optional argument specifing the scaling of the second
-    dimension of `M`. If `nothing` assumed to containg all `1`.
-
-
-    function compM!(M, A, wns, work, τ=nothing)
-
-
-Same as `compM!(M, A, A, wns, work, τ)` except the diagonals are overwritten by `-1`.
-
-
-"""
-function compM!(
-    M::AbstractArray{Complex{T}}, A::AbstractMatrix{T}, 
-    B::AbstractMatrix{T}, wns::AbstractVector{T}, 
-    work::AbstractArray{T}, 
-    τ::Union{AbstractVector{T}, Nothing}=nothing
-) where T <: Union{Float32, Float64}
-    m, n, p = size(M)
-    
-    # make sure every is correct size
-    @assert size(M) == (m, n, p)
-    @assert size(A) == (3, m)
-    @assert size(B) == (3, n)
-    @assert length(wns) == p
-    @assert length(work) >= m*n
-    if isnothing(τ)
-        @assert backsagree(M, A, B, wns, work)
-    else
-        @assert length(τ) == n
-        @assert backsagree(M, A, B, wns, work, τ)
-    end
-
-    # get work space
-    W = reshape(view(work, 1:m*n), m, n)
-
-    # compute norms of all pairs
-    map!(W, CartesianIndices(W)) do idx
-        @inbounds begin
-            i, j = idx[1], idx[2]
-            d1 = A[1, i] - B[1, j]
-            d2 = A[2, i] - B[2, j]
-            d3 = A[3, i] - B[3, j]
+function foldylax!(
+    fls::FoldyLaxStruct{T}, flws::FoldyLaxWorkStruct{T}
+) where T
+    function dsts!(
+        ::Val{N}, W::StridedMatrix{Complex{T}},
+        A::StridedArray{T}, B::StridedArray{T},
+    ) where {N,T<:Real}
+        map!(W, CartesianIndices(W)) do idx
+            i, j = Tuple(idx)
+            s = zero(T)
+            @inbounds @simd for k in 1:N
+                s += (A[k,i] - B[k,j])^2
+            end
+            sqrt(s)
         end
-        return sqrt(d1^2 + d2^2 + d3^2)
+
+        return W
     end
 
-    # compute free space propogation
-    M .= reshape(W, m, n, 1) .* reshape(wns, 1, 1, p)
-    M .= exp.(1im .* M) ./ reshape((4π .* W), m, n)
+    (;m, n, k, p, d, src, sct, rec, frq, τ, G) = fls
+    (;Mξξ, Mξz, Mrz, Mrξadj, Mξξfac, work) = flws
 
-    if !isnothing(τ)
-        # scale by strength
-        M .*= reshape(τ, 1, n, 1)
-    end
-end
-
-function compM!(
-    M::AbstractArray{Complex{T}}, A::AbstractMatrix{T}, 
-    wns::AbstractVector{T}, work::AbstractArray{T},
-    τ::Union{AbstractVector{T}, Nothing}=nothing
-) where T <: Union{Float32, Float64}
-    compM!(M, A, A, wns, work, τ)
+    wns = reshape(frq .* (2π / 3e8), 1, 1, p)
+    wst = WorkStackTrack(work)
     
-    # correct diagonals
-    m = size(A, 2)
-    Mflat = reshape(M, m^2, :)
-    @views Mflat[1:(m+1):m*m, :] .= -1
-end
+    # solve for Mrz
+    withwork(wst, n, k) do W
+        dsts!(Val(d), W, rec, src)
+        Mrz .= reshape(W, n, k, 1) .* wns
+        Mrz .= exp.(1im .* Mrz) ./ (4π .* W)
+    end
 
+    # deal with edge case
+    if m == 0
+        for s in 1:p
+            G_ = view(G, (s-1)*n+1:s*n, :)
+            G_ .= view(Mrz, :, :, s)
+        end
+        return fls
+    end 
 
-@doc raw"""
-    function compG!(G, Mξξfac, Mrξ, Mξz,  Mrz, wns)
+    τ_ = reshape(τ, 1, m, 1)
+    τ_adj = permutedims(τ_, (2,1,3))
 
-Computes ``G`` so that 
-```math
-G_{:,:,s} = M^{[rz]}_{:,:,s} - M^{[rξ]}_{:,:,s} \left(M^{[ξξ]}_{:,:,s}
-\right)^{-1}M^{[ξz]}_{:,s}
-```
-for ``s = 1, \cdots, p``
+    # solve for Mξξ; set diagonals to -1
+    withwork(wst, m, m) do W
+        dsts!(Val(d), W, sct, sct)
+        Mξξ .= reshape(W, m, m, 1) .* wns
+        Mξξ .= exp.(1im .* Mξξ) ./ (4π .* W) .* τ_
+        view(reshape(Mξξ, m^2, :), 1:(m+1):m*m, :) .= -1
+    end
 
-# Arguments
-* `G::AbstractArray{Complex{T}}`: Array of size `(n, k, p)` which will be overwritten with the Green's tensor. Will be overwritten.
-* `Mξξfac::AbstractVector`: Vector of length `p` containg factorizations of ``M^{[\xi\xi]}_s`` for ``s = 1, \cdots, p``. The factorizations should be supported by `ldiv!`.
-* `Mrξ::AbstractArray{Complex{T}}`: Array of size `(n, m, p)` containing each ``M^{[r\xi]}_s`` along the last dimension. Will be overwritten.
-* `Mξz::AbstractArray{Complex{T}}`: Array of size `(m, k, p)` containing each ``M^{[\xi z]}_s`` along the last dimension.
-* `Mrz::AbstractArray{Complex{T}}`: Array of size `(n, k, p)` containing each ``M^{[rz]}_s`` along the last dimension.
-* `wns::AbstractVector{T}`: Vector of length `p` containing wavenumbers.
-"""
-function compG!(
-    G::AbstractArray{Complex{T}}, Mξξfac,
-    Mrξ::AbstractArray{Complex{T}}, Mξz::AbstractArray{Complex{T}},
-    Mrz::AbstractArray{Complex{T}}, wns::AbstractVector{T}
-) where T <: Union{Float32, Float64}
-    n, k, p = size(G)
-    m = size(Mrξ, 2)
+    # solve for Mξz
+    withwork(wst, m, k) do W
+        dsts!(Val(d), W, sct, src)
+        Mξz .= reshape(W, m, k, 1) .* wns
+        Mξz .= exp.(1im .* Mξz) ./ (4π .* W)
+    end
 
-    # check arguments
-    @assert size(G) == (n, k, p)
-    @assert length(Mξξfac) == p
-    @assert all(M -> size(M) == (m,m), Mξξfac)
-    @assert size(Mrξ) == (n, m, p)
-    @assert size(Mξz) == (m, k, p)
-    @assert size(Mrz) == (n, k, p)
-    @assert length(wns) == p
+    # solve for Mrξadj, adjoint of Mrξ
+    withwork(wst, m, n) do W
+        dsts!(Val(d), W, sct, rec)
+        Mrξadj .= W .* wns
+        Mrξadj .= exp.(1im .* Mrξadj) ./ (4π .* W) .* τ_adj
+    end
+    
+    # compute factorizations
+    Mξξfac[] = [qr!(view(Mξξ, :, :, s)) for s in 1:p]
 
-    # make sure backends agree
-    @assert backsagree(G, Mrξ, Mξz, Mrz, wns)
-
-    # solve LS problems
     for s in 1:p
         # get current slice
         Mξz_ = view(Mξz, :, :, s)
-        Mξξ_ = Mξξfac[s]
+        Mξξ_ = Mξξfac[][s]
         Mrz_ = view(Mrz, :, :, s)
-        Mrξ_ = view(Mrξ, :, :, s)
-        G_ = view(G, :, :, s)
+        Mrξadj_ = view(Mrξadj, :, :, s)
+        G_ = view(G, (s-1)*n+1:s*n, :)
 
-        ldiv!(Mξz_, Mξξ_, Mξz_)
-        G_ .= Mrz_ .- Mrξ_ * Mξz_
+        ldiv!(adjoint(Mξξ_), Mrξadj_)
+        Mrξadj_ = adjoint(Mrξadj_)
+
+        G_ .= Mrz_ .- Mrξadj_ * Mξz_
     end
-end
 
-export compM!, compG!
-
+    return fls
 end

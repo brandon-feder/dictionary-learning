@@ -22,13 +22,19 @@ using CUDA, KernelAbstractions, GPUArrays, Adapt
 import Base: push!, pop!
 
 include("Utils.jl")
-include("Simplexes.jl")
-include("SubspaceRecovery.jl")
-include("Clustering.jl")
-include("DictionaryRecovery.jl")
+include("FoldyLax/Structs.jl")
 include("FoldyLax/FoldyLax.jl")
+include("MOD/Structs.jl")
+include("MOD/Sample.jl")
+include("MOD/Cluster.jl")
+include("SSDL/SubRec.jl")
+include("SSDL/SubDist.jl")
+# include("SSDL/SubCluster.jl")
 
-export compΣ!, compG!, compV!, compZ!, compS!,
-    truesubs!, subdists!, nsupshared!, truesimps, recdict!, formgraph,
-    truetruegraph, nedgedif, Simplices, cluster, randsvd
+export FoldyLaxStruct, FoldyLaxWorkStruct, foldylax!, subdist,
+    gen_sparse_samples, MODSampleStruct, MODSampleWorkStruct, mod_sample!, mod_cluster!,
+    align_dict, align_dict!, batched_opnorm!, batched_norm!, max_cov!, get_free_mem,
+    SSDLFakeSubRecStruct, SSDLSubRecStruct, ssdl_subrec!, ssdl_subrec_true!,
+    SSDLSubDistStruct, SSDLTrueSubDistStruct, SSDLSubDistWorkStruct, sub_dist!,
+    SSDLSubClusterStruct, SSDLSubClusterWorkStruct, ssdl_sub_cluster!, get_white
 end

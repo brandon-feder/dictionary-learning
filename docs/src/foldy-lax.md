@@ -73,9 +73,13 @@ See the example in `/examples/foldy-lax/foldy-lax-example.ipynb` for how to use
 the following functions.
 
 ```@docs
-compM!
+propmats!
 ```
 
 ```@docs
-compG!
+selfpropmats!
+```
+
+```@docs
+greenmats!
 ```
