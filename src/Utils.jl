@@ -109,25 +109,35 @@ function align_dict(
     @assert size(A, 2) == k
 
     perm = Vector{Int}(undef, k)
-    rot = Vector{T}(undef, k)
+    scale = Vector{T}(undef, k)
+    
+    normA = sqrt.(sum(abs2, A, dims=1))
+    normB = sqrt.(sum(abs2, B, dims=1))
     
     X = A'B
-    X_cpu = adapt(CPU(), X)
+    X ./= reshape(normA, :, 1)
+    X ./= reshape(normB, 1, :)
+
     Y = abs.(X)
+    Y_cpu = adapt(CPU(), Y)
+
+    X_cpu = adapt(CPU(), X)
+    normA_cpu = adapt(CPU(), normA)
+    normB_cpu = adapt(CPU(), normB)
 
     for _ in 1:k
         idx = argmax(Y)
-        i = idx[1]  # Column index for A
-        j = idx[2]  # Column index for B
+        i = idx[1]
+        j = idx[2]
         
         perm[i] = j
-        rot[i] = abs(X_cpu[idx])/X_cpu[idx]
+        scale[i] = conj(X_cpu[i,j]/Y_cpu[i,j]) * normA_cpu[i] / normB_cpu[j]
         
         Y[i, :] .= -Inf
         Y[:, j] .= -Inf
     end
 
-    return perm, rot
+    return perm, scale
 end
 
 function align_dict!(
@@ -140,15 +150,15 @@ function align_dict!(
 end
 
 function subdist(
-    A::StridedMatrix{T}, B::StridedMatrix{T}, nrm::Symbol=:opnorm
+    A::StridedMatrix{T}, B::StridedMatrix{T}, nrm::Symbol=:spa
 ) where T
     @assert size(A) == size(B)
-    @assert nrm ∈ [:fnorm, :opnorm]
+    @assert nrm ∈ [:fnorm, :spa]
 
     if nrm == :fnorm
         return norm(A - B*adjoint(B)*A)
     else
-        return opnorm(A - B*adjoint(B)*A)
+        return acos(opnorm(A'*B))
     end
 end
 
@@ -164,73 +174,73 @@ function batched_opnorm!(
     end
 end
 
-function batched_norm!(
-    nrms::StridedVector{T1}, M::StridedArray{T2}
-) where T1 where T2
-    k = length(nrms)
-    @assert ndims(M) == 3
-    @assert size(M, 3) == k
+# function batched_norm!(
+#     nrms::StridedVector{T1}, M::StridedArray{T2}
+# ) where T1 where T2
+#     k = length(nrms)
+#     @assert ndims(M) == 3
+#     @assert size(M, 3) == k
 
-    sum!(abs2, reshape(nrms, 1, 1, :), M)
-    nrms .= sqrt.(nrms)
+#     sum!(abs2, reshape(nrms, 1, 1, :), M)
+#     nrms .= sqrt.(nrms)
+# end
+
+# function batched_opnorm!(
+#     nrms::CuVector{T1}, M::CuArray{T2}; niters::Int=20
+# ) where T1 where T2
+#     m, n, k = size(M)
+#     @assert length(nrms) == k
+
+#     v = CUDA.randn(real(T2), n, k)
+
+#     u = CuMatrix{T2}(undef, m, k)
+#     σs = reshape(nrms, 1, :)
+
+#     for i in 1:niters
+#         v ./= sqrt.(sum(abs2, v, dims=1)) .+ eps(real(T2))
+#         CUBLAS.gemv_strided_batched!(
+#             'N', one(T2), M, v, zero(T2), u
+#         )
+#         σs .= sqrt.(sum(abs2, u, dims=1))
+#         u ./= σs .+ eps(real(T2))
+#         CUBLAS.gemv_strided_batched!(
+#             'C', one(T2), M, u, zero(T2), v
+#         )
+#     end
+# end
+
+function max_coh(
+    A::StridedMatrix{T}, B::StridedMatrix{T}
+) where T
+    @assert get_backend(A) == get_backend(B)
+    X = A'*B
+    normA = sqrt.(sum(abs2, A, dims=1))
+    normB = sqrt.(sum(abs2, B, dims=1))
+    X ./= reshape(normA, :, 1)
+    X ./= reshape(normB, 1, :)
+    return maximum(abs, X)
 end
 
-function batched_opnorm!(
-    nrms::CuVector{T1}, M::CuArray{T2}; niters::Int=20
-) where T1 where T2
-    m, n, k = size(M)
-    @assert length(nrms) == k
+function max_offdiag_coh(
+    A::StridedMatrix{T}, B::StridedMatrix{T}
+) where T
+    @assert get_backend(A) == get_backend(B)
+    @assert size(A, 2) == size(B, 2)
+    k = size(A, 2)
 
-    v = CUDA.randn(real(T2), n, k)
-
-    u = CuMatrix{T2}(undef, m, k)
-    σs = reshape(nrms, 1, :)
-
-    for i in 1:niters
-        v ./= sqrt.(sum(abs2, v, dims=1)) .+ eps(real(T2))
-        CUBLAS.gemv_strided_batched!(
-            'N', one(T2), M, v, zero(T2), u
-        )
-        σs .= sqrt.(sum(abs2, u, dims=1))
-        u ./= σs .+ eps(real(T2))
-        CUBLAS.gemv_strided_batched!(
-            'C', one(T2), M, u, zero(T2), v
-        )
-    end
+    X = A'*B
+    normA = sqrt.(sum(abs2, A, dims=1))
+    normB = sqrt.(sum(abs2, B, dims=1))
+    X ./= reshape(normA, :, 1)
+    X ./= reshape(normB, 1, :)
+    X[1:k+1:k^2] .= 0.0
+    return maximum(abs, X)
 end
 
-function max_cov!(M::AbstractMatrix{T}, work::AbstractArray{T}) where T
-    m, n = size(M)
-    back = get_backend(M)
-    
-    @assert length(work) >= n
-    @assert DictionaryLearning.backsagree(M, work)
-
-    bw = div(length(work), n)
-
-    # normalize columns of M
-    M ./= sqrt.(sum(abs2, M, dims=1))
-
-    gmax = -Inf
-    for part in partition(1:n, bw)
-        a,b = first(part), last(part)
-        bw_ = length(part)
-        work_ = reshape(view(work, 1:n*length(part)), n, :)
-        M_ = view(M, :, part)
-
-        # compute covariance for block
-        mul!(work_, M', M_)
-        
-        # remove diagonal entries
-        diag = n*(a-1)+1:length(part)+1:n*b
-        fill!(view(work_, diag), 0.0)
-
-        # update maximum
-        lmax = maximum(abs, work)
-        gmax = lmax > gmax ? lmax : gmax
-    end
-
-    return gmax
+function max_offdiag_coh(
+    A::StridedMatrix{T}
+) where T
+    return max_offdiag_coh(A, A)
 end
 
 function get_free_mem(back::Backend)
@@ -248,12 +258,24 @@ end
 function get_white(
     Y::StridedMatrix{T}, k::Int, s::Int
 ) where T
-    n = size(Y, 2)
-    svdA = svd(Y)
-    U, Σ = svdA.U, Diagonal(svdA.S)
-    Σ *= sqrt(k/(n*s))
-    W = U*Σ*U'
-    Winv = U * inv(Σ) * U'
+    m, n = size(Y)
+    qrYadj = qr(Y')
+    R = copy(qrYadj.R')
+
+    svdR = svd(R)
+    U = svdR.U
+    svls = svdR.S * sqrt(k/(n*s))
+
+    Winv = U * Diagonal(svls) * U'
+
+    if k < m
+        svls[k+1:end] .= 0.0
+        svls[1:k] .^= -1
+    else
+        svls .^= -1
+    end
+
+    W = U * Diagonal(svls) * U'
 
     return W, Winv
 end

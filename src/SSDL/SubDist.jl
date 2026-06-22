@@ -5,12 +5,12 @@ struct SSDLSubDistStruct{T1, T2} <: AbstractSSDLSubDistStruct{T1, T2}
     m::Int
     s::Int
     t::Int
-    nrm::Symbol
+    dist::Symbol
     S::StridedArray{T1} # m × s × t
     D::Symmetric{T2, <: StridedMatrix{T2}} # t × t
 
     function SSDLSubDistStruct(
-        back::Backend, m::Int, s::Int, t::Int, nrm::Symbol,
+        back::Backend, m::Int, s::Int, t::Int, dist::Symbol,
         S::StridedArray{T1}, D::Symmetric{T2, <: StridedMatrix{T2}}
     ) where T1 where T2
         @assert T2 == real(T1)
@@ -18,9 +18,9 @@ struct SSDLSubDistStruct{T1, T2} <: AbstractSSDLSubDistStruct{T1, T2}
         @assert DictionaryLearning.backsagree(S, D)
         @assert size(S) == (m, s, t)
         @assert size(D) == (t, t)
-        @assert nrm ∈ [:fnorm, :opnorm]
+        @assert dist ∈ [:spa, :fnorm]
 
-        return new{T1, T2}(back, m, s, t, nrm, S, D)
+        return new{T1, T2}(back, m, s, t, dist, S, D)
     end
 end
 
@@ -30,14 +30,14 @@ struct SSDLTrueSubDistStruct{T1, T2} <: AbstractSSDLSubDistStruct{T1, T2}
     k::Int
     s::Int
     t::Int
-    nrm::Symbol
+    dist::Symbol
     S::StridedArray{T1} # m × s × t
     D::Symmetric{T2, <: StridedMatrix{T2}} # t × t
     X::AbstractSparseMatrix{T1} # k × t
     C::Symmetric{Int, <: StridedMatrix{Int}} # t × t
 
     function SSDLTrueSubDistStruct(
-        back::Backend, m::Int, k::Int, s::Int, t::Int, nrm::Symbol,
+        back::Backend, m::Int, k::Int, s::Int, t::Int, dist::Symbol,
         S::StridedArray{T1}, D::Symmetric{T2, <: StridedMatrix{T2}}, 
         X::AbstractSparseMatrix{T1}, C::Symmetric{Int, <: StridedMatrix{Int}}
     ) where T1 where T2
@@ -50,46 +50,26 @@ struct SSDLTrueSubDistStruct{T1, T2} <: AbstractSSDLSubDistStruct{T1, T2}
         @assert size(X) == (k, t)
         @assert size(D) == (t, t)
         @assert size(C) == (t, t)
-        @assert nrm ∈ [:fnorm, :opnorm]
+        @assert dist ∈ [:spa, :fnorm]
 
-        return new{T1, T2}(back, m, k, s, t, nrm, S, D, X, C)
-    end
-end
-
-struct SSDLSubDistWorkStruct{T1, T2}
-    W::StridedArray{T1} # m × m × t
-    S2::StridedArray{T1} # m × s × t
-    d::StridedVector{T2} # t
-
-    function SSDLSubDistWorkStruct(
-        W::StridedArray{T1}, S2::StridedArray{T1},
-        d::StridedVector{T2}
-    ) where T1 where T2
-        m, s, t = size(S2)
-
-        @assert size(W) == (m, m, t)
-        @assert size(S2) == (m, s, t)
-        @assert length(d) == t
-        @assert T2 == real(T1)
-
-        return new{T1, T2}(W, S2, d)
+        return new{T1, T2}(back, m, k, s, t, dist, S, D, X, C)
     end
 end
 
 function SSDLSubDistStruct(
     ssrs::DictionaryLearning.AbstractSSDLSubRecStruct{T1},
-    nrm::Symbol
+    dist::Symbol=:spa
 ) where T1
     (; back, m, s, t, S) = ssrs
     
     D = Symmetric(adapt(back, Matrix{real(T1)}(undef, t, t)))
 
-    return SSDLSubDistStruct(back, m, s, t, nrm, S, D)
+    return SSDLSubDistStruct(back, m, s, t, dist, S, D)
 end
 
 function SSDLTrueSubDistStruct(
     stsrs::DictionaryLearning.SSDLFakeSubRecStruct{T1},
-    nrm::Symbol
+    dist::Symbol
 ) where T1
     (; back, m, k, s, t, S, X) = stsrs
     
@@ -97,68 +77,13 @@ function SSDLTrueSubDistStruct(
     C = Symmetric(Matrix{Int}(undef, t, t))
     Xt = X[:, 1:t]
 
-    return SSDLTrueSubDistStruct(back, m, k, s, t, nrm, S, D, Xt, C)
+    return SSDLTrueSubDistStruct(back, m, k, s, t, dist, S, D, Xt, C)
 end
 
-function SSDLSubDistWorkStruct(
-    ssds::AbstractSSDLSubDistStruct{T1, T2}
-) where T1 where T2
-    (; back, m, s, t) = ssds
-
-    W = adapt(back, Array{T1}(undef, m, m, t))
-    S2 = adapt(back, Array{T1}(undef, m, s, t))
-    d = adapt(back, Vector{T2}(undef, t))
-    
-    return SSDLSubDistWorkStruct(W, S2, d)
-end
-
-function sub_dist!(
-    ssds::AbstractSSDLSubDistStruct{T1, T2},
-    ssdws::SSDLSubDistWorkStruct{T1}
-) where T1 where T2
-    (; m, t, nrm, S, D) = ssds
-    (; W, S2, d) = ssdws
-    CUBLAS.gemm_strided_batched!('N', 'C', 1.0, S, S, 0.0, W)
-
-    for i in 1:t
-        S_ = view(S, :, :, i+1:t)
-        S2_ = view(S2, :, :, i+1:t)
-        Wi = view(W, :, :, i)
-        D_ = view(parent(D), i, i+1:t) # upper triangle
-        d_ = view(d, i+1:t)
-
-        copyto!(S2_, S_)
-        CUBLAS.gemm_strided_batched!(
-            'N', 'N', 1.0, reshape(Wi, m, m, 1), S_, -1.0, S2_
-        )
-
-        if nrm == :fnorm
-            batched_norm!(d_, S2_)
-        elseif nrm == :opnorm
-            batched_opnorm!(d_, S2_)
-        end
-
-        D_ .= d_
-    end
-    
-    # clear diagonal
-    D.data[1:t+1:t^2] .= 0.0
-end
-
-function sub_dist!(
-    ssds::SSDLTrueSubDistStruct{T1, T2},
-    ssdws::SSDLSubDistWorkStruct{T1}
+function sub_dist_true!(
+    ssds::SSDLTrueSubDistStruct{T1, T2}
 ) where T1 where T2
     (; t, C, X) = ssds
-
-    invoke(
-        sub_dist!, 
-        Tuple{
-            AbstractSSDLSubDistStruct{T1, T2}, 
-            SSDLSubDistWorkStruct{T1}
-        }, 
-        ssds, ssdws
-    )
 
     for i in 1:t
         nzi = findnz(view(X, :, i))[1]
@@ -170,4 +95,127 @@ function sub_dist!(
 
     # clear diagonal
     C.data[1:t+1:t^2] .= 0.0
+end
+
+@kernel function pairwise_opnorm_kernel!(
+    D, @Const(S), ::Val{s}
+) where s
+    m, _, t = size(S)
+
+    # get global index
+    gi::Int = @index(Global)
+
+    # get index in upper triangle
+    i::Int = t-floor(Int, (sqrt(8*(t*(t+1)/2-gi)+1)-1)/2)
+    j::Int = gi-div((i-1)*(2*t-i+2),2)+(i-1)
+
+    # scratch space
+    C = @MMatrix zeros(eltype(S), s, s)
+
+    # Compute C = A' * B
+    for x in 1:m
+        for v in 1:s
+            for u in 1:s
+                @inbounds C[u, v] += conj(S[x, u, i]) * S[x, v, j]
+            end
+        end
+    end
+
+    # convert to SMatrix for allocation-free
+    C_static = SMatrix(C)
+    
+    # do power iteration
+    if iszero(C_static)
+        op_norm = zero(real(eltype(S)))
+    else
+        # initial guess vector
+        v = @SVector ones(eltype(S), s)
+        v = v ./ norm(v)
+        
+        for _ in 1:25
+            u = C_static * v
+            u_norm = norm(u)
+            u = u_norm > 0 ? u ./ u_norm : u 
+            
+            v_new = C_static' * u
+            v_norm = norm(v_new)
+            v = v_norm > 0 ? v_new ./ v_norm : v_new
+        end
+        
+        op_norm = norm(C_static * v)
+    end
+
+    # Write to the output matrix D
+    D[i, j] = acos(op_norm)
+end
+
+function sub_dist_spa!(
+    ssds::AbstractSSDLSubDistStruct{T1, T2}
+) where T1 where T2
+    (; back, dist, s, t, S, D) = ssds
+    @assert dist == :spa
+    
+    # 16x16 is a standard, efficient workgroup size for 2D grids
+    kernel! = pairwise_opnorm_kernel!(back, (256,))
+    kernel!(D.data, S, Val(s), ndrange=(div(t*(t+1),2),))
+    KernelAbstractions.synchronize(back)
+end
+
+
+@kernel function pairwise_fnorm_kernel!(
+    D, @Const(S), @Const(C)
+)
+    m, s, t = size(S)
+
+    # get global index
+    gi::Int = @index(Global)
+
+    # get index in upper triangle
+    i::Int = t-floor(Int, (sqrt(8*(t*(t+1)/2-gi)+1)-1)/2)
+    j::Int = gi-div((i-1)*(2*t-i+2),2)+(i-1)
+    
+    acc1 = zero(real(eltype(D)))
+    @inbounds begin
+        for u in 1:m
+            for v in 1:s
+                acc2 = zero(eltype(D))
+                for w in 1:m
+                    acc2 = acc2 + conj(C[w, u, i])*S[w,v,j]
+                end
+                acc1 = acc1 + abs(acc2)^2
+            end
+        end
+    end
+    D[i,j] = sqrt(acc1)
+end
+
+function sub_dist_fnorm!(
+    ssds::DictionaryLearning.AbstractSSDLSubDistStruct{T1, T2}
+) where T1 where T2
+    (; back, dist, t, m, S, D) = ssds
+    @assert dist == :fnorm
+
+    # compute I - Ai*Ai' for all Ai
+    C = S ⊠ batched_adjoint(S)
+    C .= adapt(back, I(m)) .- C
+
+    kernel! = pairwise_fnorm_kernel!(back, (256,))
+    kernel!(D.data, S, C, ndrange=(div(t*(t+1),2),))
+    KernelAbstractions.synchronize(back)
+end
+
+function sub_dist!(
+    ssds::AbstractSSDLSubDistStruct{T1, T2},
+) where T1 where T2
+    (; dist) = ssds
+
+    if dist == :spa
+        sub_dist_spa!(ssds)
+    elseif dist == :fnorm
+        sub_dist_fnorm!(ssds)
+    end
+
+    if isa(ssds, SSDLTrueSubDistStruct{T1, T2})
+        sub_dist_true!(ssds)
+    end
 end

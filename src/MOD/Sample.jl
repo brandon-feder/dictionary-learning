@@ -1,21 +1,9 @@
-function mod_sample_iter!(
-    ms::MODSampleStruct{T1, T2}, mws::MODSampleWorkStruct{T1},
+function mod_sample_init_iter!(
+    ms::DictionaryLearning.MODSampleStruct{T1, T2}, mws::DictionaryLearning.MODSampleWorkStruct{T1},
     usesp::Bool
 ) where T1 where T2
-    (; back, Ds, Y, τ, dt) = ms
-    (; Xadj, Z, W1, W2, A) = mws
-    
-    function η(x::T, a::T) where T
-        if x > a
-            return x - a
-        elseif -a <= x <= a
-            return zero(T)
-        else
-            return x + a
-        end
-    end
-
-    D = Ds[end]
+    (; back, D, Y) = ms
+    (; Xadj, Z, W1, A) = mws
 
     # We would like to solve the LS problem
     #           X'D' = Y'
@@ -53,9 +41,33 @@ function mod_sample_iter!(
     # normalize columns of D
     D ./= sqrt.(sum(abs2, D, dims=1))
 
+    if usesp
+        return Xadjsp
+    else
+        return nothing
+    end
+end
+
+function mod_sample_iter!(
+    ms::DictionaryLearning.MODSampleStruct{T1, T2}, mws::DictionaryLearning.MODSampleWorkStruct{T1},
+    Xadjsp::Union{Nothing, AbstractSparseMatrix{T1}}
+) where T1 where T2
+    (; back, D, Y, τ, dt) = ms
+    (; Xadj, Z, W1, W2, A) = mws
+    
+    function η(x::T, a::T) where T
+        if x > a
+            return x - a
+        elseif -a <= x <= a
+            return zero(T)
+        else
+            return x + a
+        end
+    end
+
     # W2 <- Y - DX
     copyto!(W2, Y)
-    if usesp
+    if Xadjsp != nothing
         mul!(W2, D, Xadjsp', -1.0, 1.0)
     else
         mul!(W2, D, Xadj', -1.0, 1.0)
@@ -81,44 +93,54 @@ function mod_sample_iter!(
 end
 
 function mod_sample!(
-    ms::MODSampleStruct{T1, T2}, mws::MODSampleWorkStruct{T1}
+    ms::DictionaryLearning.MODSampleStruct{T1, T2}, mws::DictionaryLearning.MODSampleWorkStruct{T1},
+    D0::Union{Nothing, StridedMatrix{T1}}=nothing, X0adj::Union{Nothing, StridedMatrix{T1}}=nothing
 ) where T1 where T2
-    (; back, m, k, n, Y, Ds, ε, 
+    (; back, m, k, n, Y, D, ε, 
         max_iters, err_hist, sparsity_hist,
         elap_hist, sparse_ls_cutoff) = ms
     (; W2, Xadj, Z) = mws
 
-    Ynrm = norm(Y)
+    if D0 != nothing
+        @assert size(D0) == (m, k)
+        @assert X0adj != nothing
+        @assert size(X0adj) == (n, k)
+    end
 
-    # initial guess
-    randn!(Xadj)
+    empty!(err_hist)
+    empty!(sparsity_hist)
+    empty!(elap_hist)
+
+    Ynrm = norm(Y)
+    
+    # do first initialization
+    elap = @elapsed begin
+        if D0 == nothing
+            randn!(Xadj)
+            mod_sample_init_iter!(ms, mws, false)
+        else
+            copyto!(Xadj, X0adj)
+            copyto!(D, D0)
+        end
+    end
+
+    # initialize Z
     fill!(Z, 0.0)
 
-    # add new vector for sample's histroy
-    push!(Ds, adapt(back, Matrix{T1}(undef, m, k)))
-    push!(err_hist, T2[])
-    push!(sparsity_hist, T2[])
-    push!(elap_hist, T2[])
-    ms.nsamples += 1
-
     itn = 0 # tracks which iteration
+    Xadjsp = nothing
     while true
-        # whether or not to use sparse LS solve
-        usesp = !(length(sparsity_hist[end]) == 0 || 
-            sparsity_hist[end][end] > sparse_ls_cutoff)
-        
-        # do next iteration
-        elap = @elapsed begin
-            mod_sample_iter!(ms, mws, usesp)
+        elap += @elapsed begin
+            mod_sample_iter!(ms, mws, Xadjsp)
         end
         
         # normalized error
         err = norm(W2) / Ynrm
 
         # add to history
-        push!(err_hist[end], err)
-        push!(sparsity_hist[end], count(!iszero, Xadj) / (m*n))
-        push!(elap_hist[end], elap)
+        push!(err_hist, err)
+        push!(sparsity_hist, count(!iszero, Xadj) / (m*n))
+        push!(elap_hist, elap)
 
         # increment iteration
         itn += 1
@@ -126,6 +148,15 @@ function mod_sample!(
         # determine whether to terminate
         if itn > max_iters || err < ε
             break
+        end
+        
+        # whether or not to use sparse LS solve
+        usesp = !(length(sparsity_hist) == 0 || 
+            sparsity_hist[end] > sparse_ls_cutoff)
+        
+        # reinitialize before next iteration
+        elap = @elapsed begin
+            Xadjsp = mod_sample_init_iter!(ms, mws, usesp)
         end
     end
 end
