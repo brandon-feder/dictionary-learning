@@ -60,6 +60,18 @@ function withwork(f::Function, wst::WorkStackTrack, dims::Vararg{Int})
     return res
 end
 
+@doc raw"""
+    function gen_sparse_samples(T, k, n, s)
+
+Construct a sparse matrix `X` of size `(k, n)` such that each column contains `s` non-zero elements. The values of these non-zero elements is
+chosen randomly on the real or complex sphere as specified by `T`.
+
+# Arguments
+* `T::Union{Type{Float32}, Type{Float64}, Type{ComplexF32}, Type{ComplexF64}}`: Element type of `X`
+* `k::Int`: First dimension of `X`
+* `n::Int`: Second dimension of `X`
+* `s::Int`: Sparsity of each column of `X`
+"""
 function gen_sparse_samples(
     T::Union{Type{Float32}, Type{Float64}, Type{ComplexF32}, Type{ComplexF64}}, 
     k::Int, n::Int, s::Int
@@ -97,6 +109,29 @@ function gen_sparse_samples(
     return X
 end
 
+@doc raw"""
+    function align_dict(A, B)
+
+Computes the permutation of columns of `B`
+and unit-magnitude scaling of those columns
+so that the described matrix ``\tilde B`` minimizes
+``\lVert A - \tilde B\rVert_F``. It is assumed that
+the columns of `A` and `B` are normalized.
+
+# Arguments
+* `A::StridedMatrix{T}`
+* `B::StridedMatrix{T}`
+
+# Returns
+* `perm::Vector{Int}`: Vector of length `k` describing
+        a permutation of the columns of `B`.
+* `rot::Vector{T}`: Vector of length `k` describing
+        how to scale the columns of `B`.
+
+See the implementation of `align_dict!` for how to compute
+    ``\tilde B`` from ``B``.
+
+"""
 function align_dict(
     A::StridedMatrix{T}, B::StridedMatrix{T}
 ) where T
@@ -140,6 +175,12 @@ function align_dict(
     return perm, scale
 end
 
+@doc raw"""
+    function align_dict!(A, B)
+
+Same as `align_dict` except `B` is transformed
+in-place as well.
+"""
 function align_dict!(
     A::StridedMatrix{T}, B::StridedMatrix{T}
 ) where T
@@ -147,8 +188,23 @@ function align_dict!(
     perm, rot = align_dict(A, B)
     B .= view(B, :, perm)
     B .*= reshape(adapt(back, rot), 1, :)
+    return perm, rot
 end
 
+@doc raw"""
+    function subdist(A, B, nrm=:opnorm)
+
+Computes the subspace distance between the column-space
+of `A` and `B` under the norm specified by `:opnorm`. It
+is assumed that the columns of `A` and `B` form an 
+orthonormal basis.
+
+# Arguments
+* `A::StridedMatrix`
+* `B::StridedMatrix`
+* `nrm::Symbol`: Either `:opnorm` or `:fnorm` for operator
+        norm and Frobenious norms respectivelly.
+"""
 function subdist(
     A::StridedMatrix{T}, B::StridedMatrix{T}, nrm::Symbol=:spa
 ) where T
@@ -243,6 +299,15 @@ function max_offdiag_coh(
     return max_offdiag_coh(A, A)
 end
 
+@doc raw"""
+    function get_free_mem(back)
+
+Returns the amount of free memory on the device
+specified by `back`. Useful for allocating work space.
+
+# Arguments
+* `back::StridedMatrix`
+"""
 function get_free_mem(back::Backend)
     GC.gc()
     if back == CUDABackend()

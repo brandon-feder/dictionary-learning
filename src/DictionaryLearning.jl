@@ -24,7 +24,6 @@ using NNlib
 import Base: push!, pop!
 
 include("Utils.jl")
-include("FoldyLax/Structs.jl")
 include("FoldyLax/FoldyLax.jl")
 include("GELMA/GELMA.jl")
 include("MOD/Structs.jl")
