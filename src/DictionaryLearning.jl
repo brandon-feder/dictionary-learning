@@ -22,7 +22,6 @@ using CUDA, KernelAbstractions, GPUArrays, Adapt
 import Base: push!, pop!
 
 include("Utils.jl")
-include("FoldyLax/Structs.jl")
 include("FoldyLax/FoldyLax.jl")
 include("MOD/Structs.jl")
 include("MOD/Sample.jl")
