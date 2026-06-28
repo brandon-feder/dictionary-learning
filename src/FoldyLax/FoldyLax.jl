@@ -277,7 +277,7 @@ function foldylax_update!(
         Mξξ_ = Mξξfac[][s]
         Mrz_ = view(Mrz, :, :, s)
         Mrξadj_ = view(Mrξadj, :, :, s)
-        G_ = view(G, (s-1)*n+1:s*n, :)
+        G_ = view(G, s:p:p*n, :)
 
         ldiv!(adjoint(Mξξ_), Mrξadj_)
         Mrξadj_ = adjoint(Mrξadj_)
