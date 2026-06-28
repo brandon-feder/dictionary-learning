@@ -162,7 +162,7 @@ function foldylax!(
     # deal with edge case
     if m == 0
         for s in 1:p
-            G_ = view(G, (s-1)*n+1:s*n, :)
+            G_ = view(G, s:p:p*n, :)
             G_ .= view(Mrz, :, :, s)
         end
         return fls
@@ -202,7 +202,7 @@ function foldylax!(
         Mξξ_ = Mξξfac[][s]
         Mrz_ = view(Mrz, :, :, s)
         Mrξadj_ = view(Mrξadj, :, :, s)
-        G_ = view(G, (s-1)*n+1:s*n, :)
+        G_ = view(G, s:p:p*n, :)
 
         ldiv!(adjoint(Mξξ_), Mrξadj_)
         Mrξadj_ = adjoint(Mrξadj_)
@@ -248,7 +248,7 @@ function foldylax_update!(
     # deal with edge case
     if m == 0
         for s in 1:p
-            G_ = view(G, (s-1)*n+1:s*n, :)
+        G_ = view(G, s:p:p*n, :)
             G_ .= view(Mrz, :, :, s)
         end
         return fls
