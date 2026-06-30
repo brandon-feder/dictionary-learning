@@ -28,7 +28,7 @@ function mod_cluster_kmed!(
 end
 
 function mod_cluster_dbscan!(
-    D::StridedMatrix{T1}, msss::Vector{<:MODSampleStruct}
+    D::StridedMatrix{T1}, msss::Vector{<:MODSampleStruct}, min_cluster_size::Int
 ) where T1
     @assert allequal(size.(getproperty.(msss, :D), 1))
     (; m) = msss[1]
@@ -42,7 +42,7 @@ function mod_cluster_dbscan!(
     r = 1.0
     res = nothing
     for i in 1:20
-        res = dbscan(dists, r; metric=nothing, min_cluster_size=2)
+        res = dbscan(dists, r; metric=nothing, min_cluster_size=min_cluster_size)
         nc = length(res.clusters)
         if nc == k
             break
@@ -74,13 +74,13 @@ end
 
 function mod_cluster!(
     D::StridedMatrix{T1}, msss::Vector{<:MODSampleStruct},
-    alg::Symbol=:dbscan
+    alg::Symbol=:dbscan; min_cluster_size::Int=2
 ) where T1
     @assert alg ∈ [:dbscan, :kmed]
 
     if alg == :kmed
         mod_cluster_kmed!(D, msss)
     elseif alg == :dbscan
-        mod_cluster_dbscan!(D, msss)
+        mod_cluster_dbscan!(D, msss, min_cluster_size)
     end
 end
