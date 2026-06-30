@@ -30,12 +30,14 @@ struct FoldyLaxStruct{T <: Real}
     frq::StridedVector{T} # frequencies
     τ::StridedVector{T} # scatterer strengths
     G::StridedMatrix{Complex{T}} # Green's matrix
+    Ghom::StridedMatrix{Complex{T}} # Homogenous part of Green's matrix
 
     function FoldyLaxStruct(
         back::Backend, m::Int, n::Int, k::Int, p::Int,
         d::Int, src::StridedMatrix{T}, sct::StridedMatrix{T}, 
         rec::StridedMatrix{T}, frq::StridedVector{T}, 
-        τ::StridedVector{T}, G::StridedMatrix{Complex{T}}
+        τ::StridedVector{T}, G::StridedMatrix{Complex{T}},
+        Ghom::StridedMatrix{Complex{T}}
     ) where T
         @assert get_backend(src) == back
         @assert backsagree(src, sct, rec, frq, τ, G)
@@ -45,8 +47,9 @@ struct FoldyLaxStruct{T <: Real}
         @assert length(τ) == m
         @assert length(frq) == p
         @assert size(G) == (p*n, k)
+        @assert size(Ghom) == (p*n, k)
 
-        return new{T}(back, m, n, k, p, d, src, sct, rec, frq, τ, G)
+        return new{T}(back, m, n, k, p, d, src, sct, rec, frq, τ, G, Ghom)
     end
 end
 
@@ -99,8 +102,9 @@ function FoldyLaxStruct(
     p = length(frq)
 
     G = adapt(back, Matrix{Complex{T}}(undef, p*n, k))
+    Ghom = adapt(back, Matrix{Complex{T}}(undef, p*n, k))
 
-    return FoldyLaxStruct(back, m, n, k, p, d, src, sct, rec, frq, τ, G)
+    return FoldyLaxStruct(back, m, n, k, p, d, src, sct, rec, frq, τ, G, Ghom)
 end
 
 function FoldyLaxWorkStruct(
@@ -146,7 +150,7 @@ function foldylax!(
         return W
     end
 
-    (;m, n, k, p, d, src, sct, rec, frq, τ, G) = fls
+    (;m, n, k, p, d, src, sct, rec, frq, τ, G, Ghom) = fls
     (;Mξξ, Mξz, Mrz, Mrξadj, Mξξfac, work) = flws
 
     wns = reshape(frq .* (2π / 3e8), 1, 1, p)
@@ -163,7 +167,9 @@ function foldylax!(
     if m == 0
         for s in 1:p
             G_ = view(G, s:p:p*n, :)
+            Ghom_ = view(Ghom, s:p:p*n, :)
             G_ .= view(Mrz, :, :, s)
+            Ghom_ .= view(Mrz, :, :, s)
         end
         return fls
     end 
@@ -203,11 +209,13 @@ function foldylax!(
         Mrz_ = view(Mrz, :, :, s)
         Mrξadj_ = view(Mrξadj, :, :, s)
         G_ = view(G, s:p:p*n, :)
+        Ghom_ = view(Ghom, s:p:p*n, :)
 
         ldiv!(adjoint(Mξξ_), Mrξadj_)
         Mrξadj_ = adjoint(Mrξadj_)
 
         G_ .= Mrz_ .- Mrξadj_ * Mξz_
+        Ghom_ .= Mrz_
     end
 
     return fls
@@ -232,7 +240,7 @@ function foldylax_update!(
         return W
     end
 
-    (;m, n, k, p, d, src, rec, sct, frq, τ, G) = fls
+    (;m, n, k, p, d, src, rec, sct, frq, τ, G, Ghom) = fls
     (;Mξξ, Mξz, Mrz, Mrξadj, Mξξfac, work) = flws
 
     wns = reshape(frq .* (2π / 3e8), 1, 1, p)
@@ -248,8 +256,10 @@ function foldylax_update!(
     # deal with edge case
     if m == 0
         for s in 1:p
-        G_ = view(G, s:p:p*n, :)
+            G_ = view(G, s:p:p*n, :)
+            Ghom_ = view(Ghom, s:p:p*n, :)
             G_ .= view(Mrz, :, :, s)
+            Ghom_ .= view(Mrz, :, :, s)
         end
         return fls
     end 
@@ -278,11 +288,13 @@ function foldylax_update!(
         Mrz_ = view(Mrz, :, :, s)
         Mrξadj_ = view(Mrξadj, :, :, s)
         G_ = view(G, s:p:p*n, :)
+        Ghom_ = view(Ghom, s:p:p*n, :)
 
         ldiv!(adjoint(Mξξ_), Mrξadj_)
         Mrξadj_ = adjoint(Mrξadj_)
 
         G_ .= Mrz_ .- Mrξadj_ * Mξz_
+        Ghom_ .= Mrz_
     end
 
     return fls
