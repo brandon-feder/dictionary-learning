@@ -115,8 +115,7 @@ end
 Computes the permutation of columns of `B`
 and unit-magnitude scaling of those columns
 so that the described matrix ``\tilde B`` minimizes
-``\lVert A - \tilde B\rVert_F``. It is assumed that
-the columns of `A` and `B` are normalized.
+``\lVert A - \tilde B\rVert_F``.
 
 # Arguments
 * `A::StridedMatrix{T}`
@@ -139,37 +138,28 @@ function align_dict(
     k = size(A, 2)
 
     @assert get_backend(A) == back
-    @assert DictionaryLearning.backsagree(A, B)
+    @assert backsagree(A, B)
     @assert size(A) == size(B)
     @assert size(A, 2) == k
 
-    perm = Vector{Int}(undef, k)
-    scale = Vector{T}(undef, k)
-    
-    normA = sqrt.(sum(abs2, A, dims=1))
-    normB = sqrt.(sum(abs2, B, dims=1))
-    
     X = A'B
-    X ./= reshape(normA, :, 1)
-    X ./= reshape(normB, 1, :)
 
-    Y = abs.(X)
-    Y_cpu = adapt(CPU(), Y)
-
+    # compute cost matrix
+    normX = max.(sqrt.(sum(abs2, X, dims=1)), eps(real(T)))
+    cost = -(abs.(X) ./ normX)
+    
+    # solve the assignment problem
+    assignment, _ = hungarian(cost)
+    perm = assignment
+    
+    # calculate optimal scaling
+    scale = Vector{T}(undef, size(A, 2))
     X_cpu = adapt(CPU(), X)
-    normA_cpu = adapt(CPU(), normA)
-    normB_cpu = adapt(CPU(), normB)
-
-    for _ in 1:k
-        idx = argmax(Y)
-        i = idx[1]
-        j = idx[2]
-        
-        perm[i] = j
-        scale[i] = conj(X_cpu[i,j]/Y_cpu[i,j]) * normA_cpu[i] / normB_cpu[j]
-        
-        Y[i, :] .= -Inf
-        Y[:, j] .= -Inf
+    normXsq_cpu = vec(adapt(CPU(), sum(abs2, X, dims=1)))
+    
+    for i in 1:size(A, 2)
+        j = perm[i]
+        scale[i] = conj(X_cpu[i,j]) / max(normXsq_cpu[j], eps(real(T)))
     end
 
     return perm, scale

@@ -19,6 +19,7 @@ using KrylovKit
 using DataStructures
 using CUDA, KernelAbstractions, GPUArrays, Adapt
 using NNlib
+using Hungarian
 
 # overloaded in `Utils.jl`
 import Base: push!, pop!
