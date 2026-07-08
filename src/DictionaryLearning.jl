@@ -46,5 +46,6 @@ export FoldyLaxStruct, FoldyLaxWorkStruct, foldylax!, foldylax_update!, subdist,
     SSDLFakeSubRecStruct, SSDLSubRecStruct, ssdl_subrec!, ssdl_subrec_true!,
     SSDLSubDistStruct, SSDLTrueSubDistStruct, SSDLSubDistWorkStruct, sub_dist!,
     SSDLSubClusterStruct, SSDLSubClusterWorkStruct, ssdl_sub_cluster!, get_white,
-    DBScanPPInit, AllInit, KCenterInit, dbscanpp, get_white_fast
+    DBScanPPInit, AllInit, KCenterInit, dbscanpp, get_white_fast, 
+    align_dict_blocks, apply_block_alignment
 end
