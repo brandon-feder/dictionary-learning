@@ -159,4 +159,7 @@ function mod_sample!(
             Xadjsp = mod_sample_init_iter!(ms, mws, usesp)
         end
     end
+    if back == CUDABackend()
+        CUDA.unsafe_free!(Xadjsp)
+    end
 end
