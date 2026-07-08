@@ -18,7 +18,7 @@ end
 end
 
 function dbscanpp_init(
-    init::KCenterInit, X::Matrix{T}, metric::Metric,
+    init::KCenterInit, X::AbstractMatrix{T}, metric::Metric,
     paralell::Bool=true
 ) where T
     n = size(X, 2)
@@ -41,21 +41,21 @@ function dbscanpp_init(
 end
 
 function dbscanpp_init(
-    init::AllInit, X::Matrix{T}, metric::Metric,
+    init::AllInit, X::AbstractMatrix{T}, metric::Metric,
     paralell::Bool
 ) where T
     return collect(1:size(X, 2))
 end
 
 function dbscanpp_init(
-    init::UniformInit, X::Matrix{T}, metric::Metric,
+    init::UniformInit, X::AbstractMatrix{T}, metric::Metric,
     paralell::Bool
 ) where T
     return randperm(size(X, 2))[1:init.k]
 end
 
 function dbscanpp(
-    X::Matrix{T}, nntree::NNTree, ε::Real; m::Int=1, init::Union{DBScanPPInit, AbstractVector{Int}}=AllInit(),
+    X::AbstractMatrix{T}, nntree::NNTree, ε::Real; m::Int=1, init::Union{DBScanPPInit, AbstractVector{Int}}=AllInit(),
     metric::Metric=Euclidean(), paralell = true,
     timing::DBscanPPTiming=DBscanPPTiming()
 ) where T

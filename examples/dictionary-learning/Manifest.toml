@@ -504,7 +504,7 @@ uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
 [[deps.DictionaryLearning]]
-deps = ["Adapt", "Arpack", "BlockArrays", "CUDA", "Clustering", "Combinatorics", "DataStructures", "Dates", "FLoops", "Folds", "GPUArrays", "Graphs", "Hungarian", "KernelAbstractions", "KrylovKit", "LinearAlgebra", "LoopVectorization", "NNlib", "Printf", "ProgressMeter", "Random", "SparseArrays", "StaticArrays", "StatsBase"]
+deps = ["Adapt", "Arpack", "BlockArrays", "CUDA", "Clustering", "Combinatorics", "DataStructures", "Dates", "Distances", "FLoops", "Folds", "GPUArrays", "Graphs", "Hungarian", "KernelAbstractions", "KrylovKit", "LinearAlgebra", "LoopVectorization", "NNlib", "NearestNeighbors", "Printf", "ProgressMeter", "Random", "SparseArrays", "StaticArrays", "StatsBase"]
 path = "../.."
 uuid = "281c2adb-e339-46ad-82a3-b2e5f7b9aafe"
 version = "0.1.0"
