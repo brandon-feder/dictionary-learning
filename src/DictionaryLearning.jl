@@ -20,6 +20,8 @@ using DataStructures
 using CUDA, KernelAbstractions, GPUArrays, Adapt
 using NNlib
 using Hungarian
+using NearestNeighbors
+using Distances
 
 # overloaded in `Utils.jl`
 import Base: push!, pop!
@@ -32,6 +34,7 @@ include("MOD/Sample.jl")
 include("MOD/Cluster.jl")
 include("SSDL/SubRec.jl")
 include("SSDL/SubDist.jl")
+include("dbscanpp.jl")
 # include("SSDL/SubCluster.jl")
 
 export FoldyLaxStruct, FoldyLaxWorkStruct, foldylax!, foldylax_update!, subdist,
@@ -42,5 +45,6 @@ export FoldyLaxStruct, FoldyLaxWorkStruct, foldylax!, foldylax_update!, subdist,
     get_free_mem,
     SSDLFakeSubRecStruct, SSDLSubRecStruct, ssdl_subrec!, ssdl_subrec_true!,
     SSDLSubDistStruct, SSDLTrueSubDistStruct, SSDLSubDistWorkStruct, sub_dist!,
-    SSDLSubClusterStruct, SSDLSubClusterWorkStruct, ssdl_sub_cluster!, get_white
+    SSDLSubClusterStruct, SSDLSubClusterWorkStruct, ssdl_sub_cluster!, get_white,
+    DBScanPPInit, AllInit, KCenterInit, dbscanpp
 end

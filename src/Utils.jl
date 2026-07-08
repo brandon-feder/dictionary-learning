@@ -115,7 +115,7 @@ end
 Computes the permutation of columns of `B`
 and unit-magnitude scaling of those columns
 so that the described matrix ``\tilde B`` minimizes
-``\lVert A - \tilde B\rVert_F``.
+``diag(\lVert A'\tilde B) - I``.
 
 # Arguments
 * `A::StridedMatrix{T}`

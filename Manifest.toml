@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "c83050381a5f5ca367ed4c653e246d55a2a82ca7"
+project_hash = "d0abe493564318c98330033aca1787851c093594"
 
 [[deps.ANSIColoredPrinters]]
 git-tree-sha1 = "574baf8110975760d391c710b6341da1afa48d8c"
@@ -414,7 +414,7 @@ uuid = "244e2a9f-e319-4986-a169-4d1fe445cd52"
 version = "0.1.2"
 
 [[deps.DictionaryLearning]]
-deps = ["Adapt", "Arpack", "BlockArrays", "CUDA", "Clustering", "Combinatorics", "DataStructures", "Dates", "FLoops", "Folds", "GPUArrays", "Graphs", "KernelAbstractions", "KrylovKit", "LinearAlgebra", "LoopVectorization", "NNlib", "Printf", "ProgressMeter", "Random", "SparseArrays", "StaticArrays", "StatsBase"]
+deps = ["Adapt", "Arpack", "BlockArrays", "CUDA", "Clustering", "Combinatorics", "DataStructures", "Dates", "FLoops", "Folds", "GPUArrays", "Graphs", "Hungarian", "KernelAbstractions", "KrylovKit", "LinearAlgebra", "LoopVectorization", "NNlib", "NearestNeighbors", "Printf", "ProgressMeter", "Random", "SparseArrays", "StaticArrays", "StatsBase"]
 path = "."
 uuid = "281c2adb-e339-46ad-82a3-b2e5f7b9aafe"
 version = "0.1.0"
@@ -978,9 +978,9 @@ version = "0.1.5"
 
 [[deps.NearestNeighbors]]
 deps = ["AbstractTrees", "Distances", "StaticArrays"]
-git-tree-sha1 = "e2c3bba08dd6dedfe17a17889131b885b8c082f0"
+git-tree-sha1 = "ca562494d657e2b69191e440e9c28b9692d67944"
 uuid = "b8a86587-4115-5ab1-83bc-aa920d37bbce"
-version = "0.4.27"
+version = "0.4.28"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
