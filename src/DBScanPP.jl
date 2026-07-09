@@ -19,19 +19,26 @@ end
 
 function dbscanpp_init(
     init::KCenterInit, X::AbstractMatrix{T}, metric::Metric,
-    paralell::Bool=true
+    parallel::Bool=true
 ) where T
+    @assert get_backend(X) == CPU()
     n = size(X, 2)
     k = init.k
     @assert 1 <= k <= n
+    floop_ex = parallel ? ThreadedEx() : SequentialEx()
 
     sidx = Vector{Int}(undef, k)
     sidx[1] = rand(1:n)
-
+    d = Vector{Float64}(undef, n)
+    
     mindist = fill(Inf, n)
     for i in 2:k
         c = view(X, :, sidx[i-1])
-        d = colwise(metric, X, c)
+
+        @floop floop_ex for i in 1:n
+            d[i] = evaluate(metric, view(X, :, i), c)
+        end
+        
         @inbounds @simd for j in 1:n
             mindist[j] = min(mindist[j], d[j])
         end
@@ -42,33 +49,34 @@ end
 
 function dbscanpp_init(
     init::AllInit, X::AbstractMatrix{T}, metric::Metric,
-    paralell::Bool
+    parallel::Bool=true
 ) where T
+    @assert get_backend(X) == CPU()
     return collect(1:size(X, 2))
 end
 
 function dbscanpp_init(
     init::UniformInit, X::AbstractMatrix{T}, metric::Metric,
-    paralell::Bool
+    parallel::Bool=true
 ) where T
+    @assert get_backend(X) == CPU()
     return randperm(size(X, 2))[1:init.k]
 end
 
 function dbscanpp(
     X::AbstractMatrix{T}, nntree::NNTree, ε::Real; m::Int=1, init::Union{DBScanPPInit, AbstractVector{Int}}=AllInit(),
-    metric::Metric=Euclidean(), paralell = true,
+    metric::Metric=Euclidean(), parallel = true,
     timing::DBscanPPTiming=DBscanPPTiming()
 ) where T
     n = size(X, 2)
-    floop_ex = paralell ? ThreadedEx() : SequentialEx()
-    
-    # check arguments
+    @assert get_backend(X) == CPU()
     @assert 1 <= m <= n
+    floop_ex = parallel ? ThreadedEx() : SequentialEx()
     
     # choose centers
     if !isa(init, AbstractVector)
         timing.init = @elapsed begin
-            sidx = dbscanpp_init(init, X, metric, paralell)
+            sidx = dbscanpp_init(init, X, metric, parallel)
         end
     else
         sidx = init
@@ -114,11 +122,15 @@ function dbscanpp(
 
     # create DBScanResult objects
     @floop floop_ex for comp in comps
-        core = intersect(comp, cidx)
-        isempty(core) && continue
-        boundary = setdiff(comp, core)
-        res_local = DbscanCluster(length(comp), core, boundary)
-        @reduce(clstr_list = append!(DbscanCluster[], [res_local]))
+        if length(comp) >= m
+            core = intersect(comp, cidx)
+            isempty(core) && continue
+            boundary = setdiff(comp, core)
+            res_local = [DbscanCluster(length(comp), core, boundary)]
+        else
+            res_local = []
+        end
+        @reduce(clstr_list = append!(DbscanCluster[], res_local))
     end
 
     return DbscanResult(clstr_list, n)
