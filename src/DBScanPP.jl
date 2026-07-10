@@ -35,8 +35,8 @@ function dbscanpp_init(
     for i in 2:k
         c = view(X, :, sidx[i-1])
 
-        @floop floop_ex for i in 1:n
-            d[i] = evaluate(metric, view(X, :, i), c)
+        @floop floop_ex for j in 1:n
+            d[j] = evaluate(metric, view(X, :, j), c)
         end
         
         @inbounds @simd for j in 1:n
