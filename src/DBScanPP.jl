@@ -32,6 +32,7 @@ function dbscanpp_init(
     d = Vector{Float64}(undef, n)
     
     mindist = fill(Inf, n)
+    mindist[sidx[1]] = -Inf
     for i in 2:k
         c = view(X, :, sidx[i-1])
 
@@ -43,6 +44,7 @@ function dbscanpp_init(
             mindist[j] = min(mindist[j], d[j])
         end
         sidx[i] = argmax(mindist)
+        mindist[sidx[i]] = -Inf
     end
     return sidx
 end

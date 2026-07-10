@@ -241,43 +241,51 @@ end
 struct ComplexAngularDist <: Distances.Metric end
 
 function (dist::ComplexAngularDist)(x, y)
-    nx = norm(x)
-    ny = norm(y)
-    c = abs(dot(x, y)) / (nx * ny)
-    return acos(clamp(c, -1.0, 1.0))
+    @fastmath begin
+        nx = norm(x)
+        ny = norm(y)
+        c = abs(dot(x, y)) / (nx * ny)
+        return acos(clamp(c, -1.0, 1.0))
+    end
 end
 
 struct ComplexAngularDist_Normalized <: Distances.Metric end
 
 function (dist::ComplexAngularDist_Normalized)(x, y)
-    c = abs(dot(x, y))
-    return acos(clamp(c, -1.0, 1.0))
+    @fastmath begin
+        c = abs(dot(x, y))
+        return acos(clamp(c, -1.0, 1.0))
+    end
 end
 
 struct ComplexAngularDist_Faked <: Distances.Metric end
 
 function (dist::ComplexAngularDist_Faked)(x, y)
-    nx = norm(x)
-    ny = norm(y)
-    R = dot(x, y)
-    I = zero(eltype(x))
-    @inbounds @simd for i in 1:2:(length(x) - 1)
-        I += x[i] * y[i+1] - x[i+1] * y[i]
-    end
-    c = sqrt(R^2 + I^2) / (nx * ny)
+    @fastmath begin
+        nx = norm(x)
+        ny = norm(y)
+        R = dot(x, y)
+        I = zero(eltype(x))
+        @inbounds @simd for i in 1:2:(length(x) - 1)
+            I += x[i] * y[i+1] - x[i+1] * y[i]
+        end
+        c = sqrt(R^2 + I^2) / (nx * ny)
 
-    return acos(clamp(c, -1.0, 1.0))
+        return acos(clamp(c, -1.0, 1.0))
+    end
 end
 
 struct ComplexAngularDist_Faked_Normalized <: Distances.Metric end
 
 function (dist::ComplexAngularDist_Faked_Normalized)(x, y)
-    R = dot(x, y)
-    I = zero(eltype(x))
-    @inbounds @simd for i in 1:2:(length(x) - 1)
-        I += x[i] * y[i+1] - x[i+1] * y[i]
-    end
-    c = sqrt(R^2 + I^2)
+    @fastmath begin
+        R = dot(x, y)
+        I = zero(eltype(x))
+        @inbounds @simd for i in 1:2:(length(x) - 1)
+            I += x[i] * y[i+1] - x[i+1] * y[i]
+        end
+        c = sqrt(R^2 + I^2)
 
-    return acos(clamp(c, -1.0, 1.0))
+        return acos(clamp(c, -1.0, 1.0))
+    end
 end
