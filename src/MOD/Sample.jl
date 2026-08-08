@@ -139,7 +139,7 @@ function mod_sample!(
 
         # add to history
         push!(err_hist, err)
-        push!(sparsity_hist, count(!iszero, Xadj) / (m*n))
+        push!(sparsity_hist, count(!iszero, Xadj))
         push!(elap_hist, elap)
 
         # increment iteration

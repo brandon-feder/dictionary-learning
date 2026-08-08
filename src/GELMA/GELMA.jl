@@ -140,7 +140,7 @@ end
 function gelma!(
     ms::GELMAStruct{T1, T2}, mws::GELMAWorkStruct{T1}
 ) where T1 where T2
-    (; m, n, D, Y, ε, 
+    (; m, n, k, D, Y, ε, 
         max_iters, err_hist, sparsity_hist,
         elap_hist, sparse_ls_cutoff) = ms
     (; W1, Xadj, Z) = mws
@@ -178,7 +178,7 @@ function gelma!(
 
         # add to history
         push!(err_hist, err)
-        push!(sparsity_hist, count(!iszero, Xadj) / (m*n))
+        push!(sparsity_hist, count(!iszero, Xadj))
         push!(elap_hist, elap)
 
         # increment iteration
